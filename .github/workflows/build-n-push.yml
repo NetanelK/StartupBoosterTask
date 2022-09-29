@@ -10,8 +10,8 @@ jobs:
   image:
     runs-on: ubuntu-latest
     steps:
-      # - name: Checkout
-      #   uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -24,9 +24,11 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build and push Docker images
-        uses: docker/build-push-action@v3
-        with:
-          context: '{{defaultContext}}:app'
-          push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/hello_world:latest
+      - name: Build, tag, and push docker image to Amazon ECR
+        working-directory: app
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: hello_world
+        run: |
+          docker build -t $REGISTRY/$REPOSITORY:latest .
+          docker push $REGISTRY/$REPOSITORY:latest
