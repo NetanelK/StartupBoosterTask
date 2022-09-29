@@ -1,0 +1,41 @@
+name: Deploy App
+
+on:
+  push:
+    paths:
+      - 'k8s/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        id: aws
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubeconfig
+        run: |
+          cd iac && terraform init
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $(terraform output -raw cluster_name)
+
+      - name: Setup ECR secret
+        run: |
+          kubectl create secret docker-registry regcred \
+            --docker-server=${{ steps.aws.outputs.aws-account-id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com \
+            --docker-username=AWS \
+            --docker-password=$(aws ecr get-login-password) || true
+
+      - name: Deploy manifests
+        working-directory: k8s
+        run: |
+          kubectl apply -f manifest.yml
