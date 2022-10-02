@@ -30,7 +30,7 @@ jobs:
       - name: Deploy manifests
         run: |
           kubectl apply -f k8s/
-          INGRESS_NAME=$(sed -En "s/name: (.*)/\1/p"  ../k8s/ingress.yml | head -1)
+          INGRESS_NAME=$(sed -En "s/name: (.*)/\1/p"  k8s/ingress.yml | head -1)
           echo "APP_URL=$(kubectl get ingress ${INGRESS_NAME// /} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')" >> $GITHUB_ENV
 
       - name: Action summery
