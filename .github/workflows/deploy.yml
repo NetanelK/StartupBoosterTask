@@ -36,4 +36,4 @@ jobs:
       - name: Action summery
         run: |
           echo "### Hello World Deployed :rocket:" >> $GITHUB_STEP_SUMMARY
-          echo "App is available at [URL]($APP_URL)" >> $GITHUB_STER_SUMMARY
+          echo "App is available at [URL]($APP_URL)" >> $GITHUB_STEP_SUMMARY
