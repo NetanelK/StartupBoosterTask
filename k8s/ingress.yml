@@ -16,6 +16,6 @@ spec:
             path: '/'
             backend:
               service:
-                name: health-check-service
+                name: hello-world-service
                 port:
                   number: 8888
