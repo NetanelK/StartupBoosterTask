@@ -1,138 +1,40 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "4.32.0"
-    }
-  }
-
-  backend "s3" {
-    bucket = "terraform-state-testting"
-    key    = "terraform2.tfstate"
-    region = "us-east-1"
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-
 locals {
-  availability_zones = slice(data.aws_availability_zones.available.names, 0, var.az_count)
-
-  private_subnets = [
-    for az in local.availability_zones :
-    cidrsubnet(var.cidr_block, 8, index(local.availability_zones, az))
-  ]
-
-  public_subnets = [
-    for az in local.availability_zones :
-    cidrsubnet(var.cidr_block, 8, index(local.availability_zones, az) + 100)
-  ]
+  ecr_registry = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
 }
 
 data "aws_caller_identity" "current" {}
-
-data "aws_availability_zones" "available" {
-  filter {
-    name   = "opt-in-status"
-    values = ["opt-in-not-required"]
-  }
+data "aws_ecr_authorization_token" "auth_token" {}
+data "aws_eks_cluster_auth" "default" {
+  name = module.eks.cluster_name
 }
 
-# data "aws_ami" "eks_ami" {
-#   filter {
-#     name = "name"
+module "eks" {
+  source = "./EKS"
 
-#   }
-#   owners      = ["amazon"]
-#   most_recent = true
-# }
-
-module "vpc" {
-  source = "terraform-aws-modules/vpc/aws"
-
-  name = "EKS VPC"
-  cidr = var.cidr_block
-
-  azs             = slice(data.aws_availability_zones.available.names, 0, var.az_count)
-  private_subnets = local.private_subnets
-  public_subnets  = local.public_subnets
-
-  enable_nat_gateway = true
+  az_count             = var.az_count
+  cidr_block           = var.cidr_block
+  cluster_desired_size = var.cluster_desired_size
+  cluster_max_size     = var.cluster_max_size
+  cluster_min_size     = var.cluster_min_size
+  cluster_name         = var.cluster_name
 }
 
-resource "aws_iam_role" "eks_cluster_role" {
-  name = "eks-cluster-allow"
+module "k8s" {
+  source = "./K8s"
 
-  assume_role_policy = <<POLICY
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "eks.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
+  oidc         = module.eks.oidc
+  cluster_name = module.eks.cluster_name
+  dockerconfigjson = jsonencode({
+    "auths" = {
+      "${local.ecr_registry}" = {
+        "username" = "AWS"
+        "password" = data.aws_ecr_authorization_token.auth_token.password
+        "auth"     = data.aws_ecr_authorization_token.auth_token.authorization_token
+      }
     }
+  })
+
+  depends_on = [
+    module.eks
   ]
 }
-POLICY
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKSClusterPolicy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
-  role       = aws_iam_role.eks_cluster_role.name
-}
-
-resource "aws_eks_cluster" "main" {
-  name     = "Hello_World_Cluster"
-  role_arn = aws_iam_role.eks_cluster_role.arn
-
-  vpc_config {
-    subnet_ids = module.vpc.private_subnets
-  }
-}
-
-resource "aws_iam_role" "node_group_role" {
-  name = "eks-node-group-allow"
-
-  assume_role_policy = jsonencode({
-    Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
-      Principal = {
-        Service = "ec2.amazonaws.com"
-      }
-    }]
-    Version = "2012-10-17"
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-  role       = aws_iam_role.node_group_role.name
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEKS_CNI_Policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-  role       = aws_iam_role.node_group_role.name
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  role       = aws_iam_role.node_group_role.name
-}
-
-resource "aws_eks_node_group" "main" {
-  cluster_name  = aws_eks_cluster.main.name
-  subnet_ids    = module.vpc.private_subnets
-  node_role_arn = aws_iam_role.node_group_role.arn
-  scaling_config {
-    min_size     = var.cluster_min_size
-    desired_size = var.cluster_desired_size
-    max_size     = var.cluster_max_size
-  }
-}
-

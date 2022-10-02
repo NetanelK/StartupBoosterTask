@@ -25,17 +25,15 @@ jobs:
 
       - name: Setup kubeconfig
         run: |
-          cd iac && terraform init
-          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name $(terraform output -raw cluster_name)
-
-      - name: Setup ECR secret
-        run: |
-          kubectl create secret docker-registry regcred \
-            --docker-server=${{ steps.aws.outputs.aws-account-id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com \
-            --docker-username=AWS \
-            --docker-password=$(aws ecr get-login-password) || true
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ secrets.CLUSTER_NAME }}
 
       - name: Deploy manifests
-        working-directory: k8s
         run: |
-          kubectl apply -f manifest.yml
+          kubectl apply -f k8s/
+          INGRESS_NAME=$(sed -En "s/name: (.*)/\1/p"  ../k8s/ingress.yml | head -1)
+          echo "APP_URL=$(kubectl get ingress ${INGRESS_NAME// /} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')" >> $GITHUB_ENV
+
+      - name: Action summery
+        run: |
+          echo "### Hello World Deployed :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "App is available at [URL]($APP_URL)" >> $GITHUB_STER_SUMMARY
